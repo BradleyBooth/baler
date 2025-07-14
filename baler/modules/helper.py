@@ -293,7 +293,7 @@ def process(
     Returns: ndarray, ndarray, ndarray: Array with the train set, array with the test set and array with the
     normalization features.
     """
-    loaded = np.load(input_path)
+    loaded = np.load(input_path, allow_pickle=True)
     data = loaded["data"]
 
     if verbose:
@@ -740,7 +740,19 @@ def diagnose(input_path: str, output_path: str) -> None:
         input_path (str): path to the np.array contataining the activations values
         output_path (str): path to store the diagnostics pdf
     """
-    diagnostics.diagnose(input_path, output_path)
+    try:
+        diagnostics.diagnose(input_path, output_path)
+    except FileNotFoundError as e:
+        print(
+            "An error occurred while running diagnostics. "
+            "Please ensure that the activations.npy file exists in the training folder and try again."
+        )
+    except Exception as e:
+        print(
+            "An unexpected error occurred while running diagnostics. "
+        )
+        print(f"Error details: {e}")
+        raise
 
 
 def perform_hls4ml_conversion(output_path, config):

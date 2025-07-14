@@ -98,7 +98,7 @@ def plot_box_and_whisker(names, residual, pdf):
     pdf.savefig()
 
 
-def plot_1D(output_path: str, config):
+def plot_1D(output_path: str, config, extra_path):
     """General plotting for 1D data, for example data from a '.csv' file. This function generates a pdf
         document where each page contains the before/after performance
         of each column of the 1D data
@@ -109,7 +109,12 @@ def plot_1D(output_path: str, config):
     """
 
     before_path = config.input_path
-    after_path = os.path.join(output_path, "decompressed_output", "decompressed.npz")
+    if extra_path == "decompressed_output":
+        after_path = os.path.join(output_path, extra_path, "decompressed.npz")
+        write_path = os.path.join(output_path, "plotting", "comparison.pdf")
+    else:
+        after_path = os.path.join(extra_path, "decompressed.npz")
+        write_path = os.path.join(extra_path, "comparison.pdf")
 
     before = np.transpose(np.load(before_path)["data"])
     after = np.transpose(np.load(after_path)["data"])
@@ -122,7 +127,7 @@ def plot_1D(output_path: str, config):
     response = np.divide(np.subtract(after, before), before) * 100
     residual = np.subtract(after, before)
 
-    with PdfPages(os.path.join(output_path, "plotting", "comparison.pdf")) as pdf:
+    with PdfPages(write_path) as pdf:
         plot_box_and_whisker(names, residual, pdf)
         fig = plt.figure(constrained_layout=True, figsize=(10, 4))
         subfigs = fig.subfigures(1, 2, wspace=0.07, width_ratios=[1, 1])
@@ -367,7 +372,7 @@ def plot_2D_old(project_path, config):
     #         writer.append_data(image)
 
 
-def plot_2D(project_path, config):
+def plot_2D(project_path, config, extra_path):
     import sys
 
     """General plotting for 2D data, for example 2D arraysfrom computational fluid
@@ -437,14 +442,16 @@ def plot_2D(project_path, config):
         # sys.exit()
 
 
-def plot(output_path, config):
+def plot(project_path, config, extra_path='decompressed_output'):
     """Runs the appropriate plotting function based on the data dimension 1D or 2D
 
     Args:
-        output_path (path): The path to the project directory
+        extra_path (path): The path to the project directory
         config (dataclass): The config class containing attributes set in the config file
     """
     if config.data_dimension == 1:
-        plot_1D(output_path, config)
+        plot_1D(project_path, config, extra_path)
     elif config.data_dimension == 2:
-        plot_2D(output_path, config)
+        plot_2D(project_path, config, extra_path)
+
+

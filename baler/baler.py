@@ -15,13 +15,16 @@
 import os
 import time
 from math import ceil
-
 import numpy as np
 
 from .modules import helper
+from .modules import compare
 import gzip
 from .modules.profiling import pytorch_profile
-
+from external.sz3.pysz import pysz
+import zfpy
+import blosc2
+from .modules.plotting import plot
 
 __all__ = (
     "perform_compression",
@@ -30,6 +33,7 @@ __all__ = (
     "perform_plotting",
     "perform_training",
     "print_info",
+    "perform_comparison"
 )
 
 
@@ -42,6 +46,7 @@ def main():
         - if --mode=decompress: call `perform_decompression` and decompress the compressed file outputted from `--mode=compress`
         - if --mode=plot: call `perform_plotting` and plot the comparison between the original data and the decompressed data from `--mode=decompress`. Also plots the loss plot from the trained network.
         - if --mode=convert_with_hls4ml: call `helper.perform_hls4ml_conversion` and create an hls4ml project containing the converted model.
+        - if --mode=compare: call `perform_comparison` and compare the compressed data with non-AE lossy compression algorithms.
 
 
     Raises:
@@ -73,6 +78,8 @@ def main():
         print_info(output_path, config)
     elif mode == "convert_with_hls4ml":
         helper.perform_hls4ml_conversion(output_path, config)
+    elif mode == "compare":
+        perform_comparison(output_path, config, verbose)
     else:
         raise NameError(
             "Baler mode "
@@ -255,7 +262,7 @@ def perform_compression(output_path, config, verbose: bool):
         - Normalization features if `config.apply_normalization=True`
     """
     print("Compressing...")
-    start = time.time()
+    start = time.perf_counter()
     normalization_features = []
 
     if config.apply_normalization:
@@ -283,9 +290,9 @@ def perform_compression(output_path, config, verbose: bool):
             config=config,
         )
 
-    end = time.time()
+    end = time.perf_counter()
 
-    print("Compression took:", f"{(end - start) / 60:.3} minutes")
+    print("Compression took:", f"{(end - start):.4f} seconds")
 
     names = np.load(config.input_path)["names"]
 
@@ -351,7 +358,7 @@ def perform_decompression(output_path, config, verbose: bool):
     """
     print("Decompressing...")
 
-    start = time.time()
+    start = time.perf_counter()
     model_name = config.model_name
     data_before = np.load(config.input_path)["data"]
     if config.separate_model_saving:
@@ -434,8 +441,8 @@ def perform_decompression(output_path, config, verbose: bool):
     except AttributeError:
         pass
 
-    end = time.time()
-    print("Decompression took:", f"{(end - start) / 60:.3} minutes")
+    end = time.perf_counter()
+    print("Decompression took:", f"{(end - start):.4f} seconds")
 
     if config.extra_compression:
         if verbose:
@@ -478,9 +485,15 @@ def print_info(output_path, config):
 
     meta_data = [
         model,
-        os.path.join(training_path, "loss_data.npy"),
-        os.path.join(training_path, "normalization_features.npy"),
     ]
+
+    loss_path = os.path.join(training_path, "loss_data.npy")
+    if os.path.exists(loss_path):
+        meta_data.append(os.path.join(training_path, "loss_data.npy"))
+
+    norm_path = os.path.join(training_path, "normalization_features.npy")                             
+    if os.path.exists(norm_path):
+        meta_data.append(os.path.join(training_path, "normalization_features.npy"))
 
     meta_data_stats = [
         os.stat(meta_data[file]).st_size / (1024 * 1024)
@@ -508,3 +521,134 @@ def print_info(output_path, config):
     print("\n ==================================")
 
     ## TODO: Add way to print how much your data has been distorted
+
+
+def perform_comparison(output_path, config, verbose: bool):
+    original_npz = np.load(config.input_path)
+    data_original = original_npz["data"]
+    names_original = original_npz["names"] 
+
+    # This list will hold all our benchmark results
+    all_results = []
+    
+    # # Correctly call the benchmark function and pass data_original
+    baler_result = compare.baler_benchmark_analyze(
+        name=f'baler ({config.model_name})',
+        output_path=output_path,
+        compress_func=lambda: perform_compression(output_path, config, True),
+        decompress_func=lambda: perform_decompression(output_path, config, True),
+        data_original=data_original,
+        names=names_original,
+    )
+
+    all_results.append(baler_result)
+    perform_plotting(output_path, config, verbose)
+
+    # Create a specific output directory for this benchmark's artifacts
+    downcast_output_dir = os.path.join(output_path, "downcast_output")
+    if not os.path.exists(downcast_output_dir):
+        os.makedirs(downcast_output_dir)
+
+    downcast_result = compare.downcast_benchmark_analyze(
+        name='Downcast',
+        output_path=downcast_output_dir,
+        data_original=data_original,
+        names=names_original,
+    )
+
+    all_results.append(downcast_result)
+    plot(output_path, config, downcast_output_dir)
+
+    # --- Compress using ZFP (Fixed Precision) ---
+    zfp_precision = 22
+    zfp_name = f'ZFP(precision={zfp_precision})'
+    
+    # Create a specific output directory for this benchmark's artifacts
+    zfp_output_dir = os.path.join(output_path, zfp_name)
+    if not os.path.exists(zfp_output_dir):
+        os.makedirs(zfp_output_dir)
+    
+    # Correctly call the benchmark function and pass data_original
+    zfp_result = compare.benchmark_and_analyze(
+        name=zfp_name,
+        output_dir=zfp_output_dir,
+        compress_func=lambda: zfpy.compress_numpy(data_original, precision=zfp_precision),
+        decompress_func=lambda c_data: zfpy.decompress_numpy(c_data),
+        data_original=data_original,
+        names=names_original,
+    )
+    all_results.append(zfp_result)
+    plot(output_path, config, zfp_output_dir)
+
+
+    # --- Compress using Blosc2 ---
+    blosc_trunc_prec = 18
+    blosc_name = f'blosc2(precision={blosc_trunc_prec})'
+    
+    # Create a specific output directory for this benchmark's artifacts
+    blosc_output_dir = os.path.join(output_path, blosc_name)
+    if not os.path.exists(blosc_output_dir):
+        os.makedirs(blosc_output_dir)
+    blosc_result = compare.benchmark_and_analyze(
+        name=blosc_name,
+        output_dir=blosc_output_dir,
+        compress_func=lambda: blosc2.pack_array2(
+            data_original,
+            cparams={
+                'filters': [blosc2.Filter.TRUNC_PREC, blosc2.Filter.SHUFFLE],
+                'filters_meta': [blosc_trunc_prec, 0],
+                'codec': blosc2.Codec.LZ4,
+                'clevel': 5
+            }
+        ),
+        decompress_func=lambda c_data: blosc2.unpack_array2(c_data),
+        data_original=data_original,
+        names=names_original,
+    )
+    all_results.append(blosc_result)
+    plot(output_path, config, blosc_output_dir)
+
+
+    # --- Compress using sz3 ---
+    sz3_name = 'sz3'
+    sz3_output_dir = os.path.join(output_path, sz3_name)
+    if not os.path.exists(sz3_output_dir):
+        os.makedirs(sz3_output_dir)
+
+    sz3_result = compare.benchmark_and_analyze(
+        name=sz3_name,
+        output_dir=sz3_output_dir,
+        compress_func=lambda: pysz.compress(data_original),
+        decompress_func=lambda c_data: pysz.decompress(c_data),
+        data_original=data_original,
+        names=names_original,
+    )
+    all_results.append(sz3_result)
+    plot(output_path, config, sz3_output_dir)
+
+    if not os.path.exists(sz3_output_dir):
+        os.makedirs(sz3_output_dir)
+    sz3_result = compare.benchmark_and_analyze(
+        name=sz3_name,
+        output_dir=sz3_output_dir,
+        compress_func=lambda: pysz.compress(data_original, mode='ABS', abs_val=sz_abs_error),
+        decompress_func=lambda c_data: pysz.decompress(c_data, data_original.shape, data_original.dtype),
+        data_original=data_original,
+        names=names_original,
+    )
+    all_results.append(sz3_result)
+    plot(output_path, config, sz3_output_dir)
+
+
+    # --- Print Final Summary Table ---
+    print("\n" + "=" * 110)
+    print("                              COMPRESSION SUMMARY                              ")
+    print("-" * 110)
+    print(f"{'Method':<30} | {'Size (MB)':>10} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}")
+    print("-" * 110)
+    
+    sorted_results = sorted(all_results, key=lambda r: r.rmse)
+    
+    for r in sorted_results:
+        print(f"{r.name:<30} | {r.size_mb:>10.3f} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | {r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}")
+    print("=" * 110)
