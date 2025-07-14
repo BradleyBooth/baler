@@ -183,6 +183,20 @@ class AE(nn.Module):
             hook.remove()
 
 
+class AE_float32(AE):
+    def __init__(self, n_features, z_dim, *args, **kwargs):
+        super(AE_float32, self).__init__(n_features, z_dim, *args, **kwargs)
+
+        self.en1 = nn.Linear(n_features, 200, dtype=torch.float32)
+        self.en2 = nn.Linear(200, 100, dtype=torch.float32)
+        self.en3 = nn.Linear(100, 50, dtype=torch.float32)
+        self.en4 = nn.Linear(50, z_dim, dtype=torch.float32)
+        self.de1 = nn.Linear(z_dim, 50, dtype=torch.float32)
+        self.de2 = nn.Linear(50, 100, dtype=torch.float32)
+        self.de3 = nn.Linear(100, 200, dtype=torch.float32)
+        self.de4 = nn.Linear(200, n_features, dtype=torch.float32)
+
+
 class CFD_dense_AE(nn.Module):
     # This class is a modified version of the original class by George Dialektakis found at
     # https://github.com/Autoencoders-compression-anomaly/Deep-Autoencoders-Data-Compression-GSoC-2021

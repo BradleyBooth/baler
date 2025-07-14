@@ -562,7 +562,10 @@ def compress(model_path, config):
                 data.shape[0], data.shape[1] * data.shape[2]
             )
     elif config.data_dimension == 1:
-        data_tensor = torch.tensor(data, dtype=torch.float64)
+        if hasattr(config, "float_dtype") and config.float_dtype == "float32":
+            data_tensor = torch.tensor(data, dtype=torch.float32)
+        else:
+            data_tensor = torch.tensor(data, dtype=torch.float64)
 
     # Batching data to avoid memory leaks
     data_dl = DataLoader(

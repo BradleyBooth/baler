@@ -25,6 +25,7 @@ from external.sz3.pysz import pysz
 import zfpy
 import blosc2
 from .modules.plotting import plot
+from .modules.plotting import plot_comparison_summary
 
 __all__ = (
     "perform_compression",
@@ -524,131 +525,207 @@ def print_info(output_path, config):
 
 
 def perform_comparison(output_path, config, verbose: bool):
-    original_npz = np.load(config.input_path)
+    """
+    Runs a series of compression benchmarks and prints a summary table.
+    This function orchestrates a comparison between the project's Baler model
+    and other standard compression algorithms like Downcasting, ZFP, Blosc2,
+    and SZ3. It loads the original data, sets up each benchmark with specific
+    configurations, and then executes them sequentially.
+    After running all benchmarks, it collects performance metrics such as
+    compression ratio, reconstruction error (RMSE, Max Error), PSNR, and
+    compression/decompression times. Finally, it sorts the results by RMSE
+    and prints a formatted summary table to the console for easy comparison.
+    Args:
+        output_path (str): The base directory path where benchmark outputs,
+            including compressed files, will be stored. Each benchmark may
+            create its own subdirectory within this path.
+        config (object): A configuration object containing project settings,
+            such as the input data path (`config.input_path`) and the Baler
+            model name (`config.model_name`).
+        verbose (bool): A flag passed to the compression and decompression
+            functions to control the verbosity of their output.
+    """
+    original_path = config.input_path
+    original_npz = np.load(original_path)
     data_original = original_npz["data"]
-    names_original = original_npz["names"] 
+    names_original = original_npz["names"]
 
-    # This list will hold all our benchmark results
-    all_results = []
-    
-    # # Correctly call the benchmark function and pass data_original
-    baler_result = compare.baler_benchmark_analyze(
-        name=f'baler ({config.model_name})',
-        output_path=output_path,
-        compress_func=lambda: perform_compression(output_path, config, True),
-        decompress_func=lambda: perform_decompression(output_path, config, True),
-        data_original=data_original,
-        names=names_original,
+    # Calculate original file size for compression ratio calculation
+    try:
+        original_size_bytes = os.path.getsize(original_path)
+        original_size_mb = original_size_bytes / (1024 * 1024)
+        print(f"Original input file size: {original_size_mb:.3f} MB ({original_path})")
+    except FileNotFoundError:
+        print(f"Warning: Could not find original file at {original_path} to calculate compression ratio.")
+        original_size_mb = 0
+
+    # Define all the benchmarks we want to run
+    benchmarks_to_run = []
+
+    # 1. Baler
+    benchmarks_to_run.append(
+        compare.BalerBenchmark(
+            name=f'Baler ({config.model_name})',
+            output_path=output_path,  # Baler uses the main project output path
+            compress_func=lambda: perform_compression(output_path, config, verbose),
+            decompress_func=lambda: perform_decompression(output_path, config, verbose),
+            data_original=data_original,
+            names_original=names_original
+        )
     )
 
-    all_results.append(baler_result)
-    perform_plotting(output_path, config, verbose)
-
-    # Create a specific output directory for this benchmark's artifacts
-    downcast_output_dir = os.path.join(output_path, "downcast_output")
-    if not os.path.exists(downcast_output_dir):
-        os.makedirs(downcast_output_dir)
-
-    downcast_result = compare.downcast_benchmark_analyze(
-        name='Downcast',
-        output_path=downcast_output_dir,
-        data_original=data_original,
-        names=names_original,
+    # 2a. Downcast float16
+    benchmarks_to_run.append(
+        compare.DowncastBenchmark(
+            output_dir=os.path.join(output_path, "downcast_float16"),
+            data_original=data_original,
+            names_original=names_original,
+            target_dtype=np.float16
+        )
     )
 
-    all_results.append(downcast_result)
-    plot(output_path, config, downcast_output_dir)
+    # 2b. Downcast float32
+    benchmarks_to_run.append(
+        compare.DowncastBenchmark(
+            output_dir=os.path.join(output_path, "downcast_float32"),
+            data_original=data_original,
+            names_original=names_original,
+            target_dtype=np.float32
+        )
+    )
 
-    # --- Compress using ZFP (Fixed Precision) ---
+    # 3a. ZFP using 'precision' mode (the original test)
+    # The 'precision' parameter specifies the number of uncompressed bits to keep.
     zfp_precision = 22
-    zfp_name = f'ZFP(precision={zfp_precision})'
-    
-    # Create a specific output directory for this benchmark's artifacts
-    zfp_output_dir = os.path.join(output_path, zfp_name)
-    if not os.path.exists(zfp_output_dir):
-        os.makedirs(zfp_output_dir)
-    
-    # Correctly call the benchmark function and pass data_original
-    zfp_result = compare.benchmark_and_analyze(
-        name=zfp_name,
-        output_dir=zfp_output_dir,
-        compress_func=lambda: zfpy.compress_numpy(data_original, precision=zfp_precision),
-        decompress_func=lambda c_data: zfpy.decompress_numpy(c_data),
-        data_original=data_original,
-        names=names_original,
+    benchmarks_to_run.append(
+        compare.ZFPBenchmark(
+            output_dir=os.path.join(output_path, f'zfp_prec{zfp_precision}'),
+            data_original=data_original,
+            names_original=names_original,
+            zfp_params={'precision': zfp_precision}
+        )
     )
-    all_results.append(zfp_result)
-    plot(output_path, config, zfp_output_dir)
 
+    # 3b. ZFP using 'rate' mode (new test)
+    # The 'rate' parameter specifies a fixed size budget in bits per value.
+    # A smaller rate means higher compression.
+    zfp_rate = 8.0 
+    benchmarks_to_run.append(
+        compare.ZFPBenchmark(
+            output_dir=os.path.join(output_path, f'zfp_rate{zfp_rate}'),
+            data_original=data_original,
+            names_original=names_original,
+            zfp_params={'rate': zfp_rate}
+        )
+    )
 
-    # --- Compress using Blosc2 ---
+    # 3c. ZFP using 'tolerance' mode (new test)
+    # The 'tolerance' parameter specifies the maximum allowed error in the compressed data.
+    # A smaller tolerance means higher compression but potentially more error.
+    zfp_tolerance = 1e-3
+    benchmarks_to_run.append(
+        compare.ZFPBenchmark(
+            output_dir=os.path.join(output_path, f'zfp_tol{zfp_tolerance}'),
+            data_original=data_original,
+            names_original=names_original,
+            zfp_params={'tolerance': zfp_tolerance}
+        )
+    )
+
+    # 4a. Blosc2 with LZ4 (Lossy, Fast)
     blosc_trunc_prec = 18
-    blosc_name = f'blosc2(precision={blosc_trunc_prec})'
-    
-    # Create a specific output directory for this benchmark's artifacts
-    blosc_output_dir = os.path.join(output_path, blosc_name)
-    if not os.path.exists(blosc_output_dir):
-        os.makedirs(blosc_output_dir)
-    blosc_result = compare.benchmark_and_analyze(
-        name=blosc_name,
-        output_dir=blosc_output_dir,
-        compress_func=lambda: blosc2.pack_array2(
-            data_original,
+    benchmarks_to_run.append(
+        compare.BloscBenchmark(
+            name=f'Blosc2-LZ4(prec={blosc_trunc_prec})',
+            output_dir=os.path.join(output_path, f'blosc2_lz4_prec{blosc_trunc_prec}'),
+            data_original=data_original,
+            names_original=names_original,
             cparams={
                 'filters': [blosc2.Filter.TRUNC_PREC, blosc2.Filter.SHUFFLE],
                 'filters_meta': [blosc_trunc_prec, 0],
                 'codec': blosc2.Codec.LZ4,
                 'clevel': 5
             }
-        ),
-        decompress_func=lambda c_data: blosc2.unpack_array2(c_data),
-        data_original=data_original,
-        names=names_original,
+        )
     )
-    all_results.append(blosc_result)
-    plot(output_path, config, blosc_output_dir)
 
-
-    # --- Compress using sz3 ---
-    sz3_name = 'sz3'
-    sz3_output_dir = os.path.join(output_path, sz3_name)
-    if not os.path.exists(sz3_output_dir):
-        os.makedirs(sz3_output_dir)
-
-    sz3_result = compare.benchmark_and_analyze(
-        name=sz3_name,
-        output_dir=sz3_output_dir,
-        compress_func=lambda: pysz.compress(data_original),
-        decompress_func=lambda c_data: pysz.decompress(c_data),
-        data_original=data_original,
-        names=names_original,
+    # 4b. Blosc2 with ZSTD (Lossy, Aggressive Compression)
+    blosc_zstd_clevel = 9
+    benchmarks_to_run.append(
+        compare.BloscBenchmark(
+            name=f'Blosc2-ZSTD(L{blosc_zstd_clevel})',
+            output_dir=os.path.join(output_path, f'blosc2_zstd_lossy_l{blosc_zstd_clevel}'),
+            data_original=data_original,
+            names_original=names_original,
+            cparams={
+                'filters': [blosc2.Filter.TRUNC_PREC, blosc2.Filter.BITSHUFFLE],
+                'filters_meta': [blosc_trunc_prec, 0],
+                'codec': blosc2.Codec.ZSTD,
+                'clevel': blosc_zstd_clevel
+            }
+        )
     )
-    all_results.append(sz3_result)
-    plot(output_path, config, sz3_output_dir)
 
-    if not os.path.exists(sz3_output_dir):
-        os.makedirs(sz3_output_dir)
-    sz3_result = compare.benchmark_and_analyze(
-        name=sz3_name,
-        output_dir=sz3_output_dir,
-        compress_func=lambda: pysz.compress(data_original, mode='ABS', abs_val=sz_abs_error),
-        decompress_func=lambda c_data: pysz.decompress(c_data, data_original.shape, data_original.dtype),
-        data_original=data_original,
-        names=names_original,
-    )
-    all_results.append(sz3_result)
-    plot(output_path, config, sz3_output_dir)
+    # TODO Need to get sz3 working properly and understand configuration options
+    # # 5a. sz3 using relative error mode
+    # sz_rel_error = 1e-4
+    # benchmarks_to_run.append(
+    #     compare.SZ3Benchmark(
+    #         output_dir=os.path.join(output_path, f'sz3_rel_{sz_rel_error:.0e}'),
+    #         data_original=data_original,
+    #         names_original=names_original,
+    #         mode='REL',
+    #         rel_val=sz_rel_error
+    #     )
+    # )
+    
+    # # 5b. sz3 using absolute error bound case
+    # sz_abs_error = 1e-5
+    # benchmarks_to_run.append(
+    #     compare.SZ3Benchmark(
+    #         output_dir=os.path.join(output_path, f'sz3_abs_{sz_abs_error:.0e}'),
+    #         data_original=data_original,
+    #         names_original=names_original,
+    #         mode='ABS',
+    #         abs_val=sz_abs_error
+    #     )
+    # )
 
+
+    # --- Run all benchmarks and collect results ---
+    all_results = []
+    for benchmark in benchmarks_to_run:
+        result = benchmark.run()
+        all_results.append(result)
+        # Optional: Call plotting for each result if you want intermediate plots
+        # plot(output_path, config, benchmark.output_dir)
 
     # --- Print Final Summary Table ---
     print("\n" + "=" * 110)
-    print("                              COMPRESSION SUMMARY                              ")
+    print(f"                          COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB                          ")
     print("-" * 110)
-    print(f"{'Method':<30} | {'Size (MB)':>10} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}")
+    header = f"{'Method':<30} | {'Size (MB)':>10} | {'Comp Ratio':>11} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}"
+    print(header)
     print("-" * 110)
     
+    # Sort results by a desired metric, e.g., RMSE
     sorted_results = sorted(all_results, key=lambda r: r.rmse)
     
     for r in sorted_results:
-        print(f"{r.name:<30} | {r.size_mb:>10.3f} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | {r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}")
+        # Calculate compression ratio
+        if original_size_mb > 0 and r.size_mb > 0:
+            ratio = original_size_mb / r.size_mb
+            ratio_str = f"{ratio:.2f}:1"
+        else:
+            ratio_str = "N/A" # Handle cases where original size is unknown or compressed size is zero
+
+        print(
+            f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
+            f"{r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}"
+        )
+    
     print("=" * 110)
+
+    if all_results:
+        # Pass the results to the new plotting function
+        plot_comparison_summary(all_results, output_path, original_size_mb)

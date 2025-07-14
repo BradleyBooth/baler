@@ -227,8 +227,12 @@ def train(model, variables, train_data, test_data, project_path, config):
                 train_data.shape[0], 1, train_data.shape[1], train_data.shape[2]
             )
     elif config.data_dimension == 1:
-        train_ds = torch.tensor(train_data, dtype=torch.float64, device=device)
-        valid_ds = torch.tensor(test_data, dtype=torch.float64, device=device)
+        if hasattr(config, "float_dtype") and config.float_dtype == "float32":
+                train_ds = torch.tensor(train_data, dtype=torch.float32, device=device)
+                valid_ds = torch.tensor(test_data, dtype=torch.float32, device=device)
+        else:
+            train_ds = torch.tensor(train_data, dtype=torch.float64, device=device)
+            valid_ds = torch.tensor(test_data, dtype=torch.float64, device=device)
 
     # Pushing input data into the torch-DataLoader object and combines into one DataLoader object (a basic wrapper
     # around several DataLoader objects).
