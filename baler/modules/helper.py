@@ -16,6 +16,7 @@ import argparse
 import importlib
 import os
 import sys
+from datetime import datetime
 from dataclasses import dataclass
 from math import ceil
 import gzip
@@ -864,3 +865,16 @@ def perform_hls4ml_conversion(output_path, config):
     hls_model.build(
         csim=config.csim, synth=config.synth, cosim=config.cosim, export=config.export
     )
+
+def green_code_tracking(start, end, title, verbose=False):
+    if verbose:
+        print("\n" + "=" * 150)
+        print(f"                    GREEN CODE INITIATIVE - {title}                          ")
+        print("-" * 150)
+        print(f"Total time taken for {title}: {end - start:.3f} seconds")
+        print(f"{title} complete. All results saved in the output directory.")
+        print("\n" + "=" * 150)
+    with open("green_code_tracking.txt", "a") as f:
+        f.write(
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {title} - Total time taken: {end - start:.3f} seconds\n"
+        )

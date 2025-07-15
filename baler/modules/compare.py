@@ -3,6 +3,7 @@
 import os
 import time
 import abc
+from datetime import datetime
 from dataclasses import dataclass
 import numpy as np
 
@@ -30,11 +31,12 @@ class Benchmark(abc.ABC):
     This class defines the template for running a benchmark.
     """
 
-    def __init__(self, name: str, output_dir: str, data_original: np.ndarray, names_original: np.ndarray):
+    def __init__(self, name: str, output_dir: str, data_original: np.ndarray, names_original: np.ndarray, verbose: bool = True):
         self.name = name
         self.output_dir = output_dir
         self.data_original = data_original
         self.names_original = names_original
+        self.verbose = verbose
         os.makedirs(self.output_dir, exist_ok=True)
 
     def run(self) -> BenchmarkResult:
@@ -42,33 +44,41 @@ class Benchmark(abc.ABC):
         Executes the full benchmark process: compress, decompress, and analyze.
         This is the public-facing method to run a benchmark.
         """
-        print(f"\nBenchmarking: {self.name}")
+        # print(f"\nBenchmarking: {self.name}")
 
         # 1. Compression
         start_compress = time.perf_counter()
         compressed_data = self._compress()
         end_compress = time.perf_counter()
         compress_time = end_compress - start_compress
-        print(f"  Compression time: {compress_time:.3f} seconds")
+        # print(f"  Compression time: {compress_time:.3f} seconds")
 
         compressed_path = self._save_compressed(compressed_data)
         compressed_file_size_bytes = os.path.getsize(compressed_path)
-        print(f"  Compressed size: {compressed_file_size_bytes / (1024 * 1024):.3f} MB")
+        # print(f"  Compressed size: {compressed_file_size_bytes / (1024 * 1024):.3f} MB")
 
         # 2. Decompression
         start_decompress = time.perf_counter()
         decompressed_data = self._decompress(compressed_data)
         end_decompress = time.perf_counter()
         decompress_time = end_decompress - start_decompress
-        print(f"  Decompression time: {decompress_time:.3f} seconds")
+        # print(f"  Decompression time: {decompress_time:.3f} seconds")
         
         self._save_decompressed(decompressed_data)
 
         # 3. Error Analysis
         metrics = self._analyze_errors(decompressed_data)
-        print(f"  -> Done. RMSE: {metrics['rmse']:.2e}, Max Error: {metrics['max_err']:.2e}")
+        # print(f"  -> Done. RMSE: {metrics['rmse']:.2e}, Max Error: {metrics['max_err']:.2e}")
         
-        # 4. Create and return result object
+        # 4. Print results if verbose
+        if self.verbose:
+            print(f"\nBenchmarking: {self.name}")
+            print(f"  Compression time: {compress_time:.3f} seconds")
+            print(f"  Compressed size: {compressed_file_size_bytes / (1024 * 1024):.3f} MB")
+            print(f"  Decompression time: {decompress_time:.3f} seconds")
+            print(f"  -> Done. RMSE: {metrics['rmse']:.2e}, Max Error: {metrics['max_err']:.2e}")
+
+        # 5. Create and return result object
         return BenchmarkResult(
             name=self.name,
             size_mb=compressed_file_size_bytes / (1024 * 1024),
@@ -96,7 +106,8 @@ class Benchmark(abc.ABC):
         """Saves the decompressed data and names to an NPZ file for inspection."""
         path = os.path.join(self.output_dir, "decompressed.npz")
         np.savez(path, data=decompressed_data, names=self.names_original)
-        print(f"  Decompressed file saved to: {path}")
+        if self.verbose:
+            print(f"  Decompressed file saved to: {path}")
 
     @abc.abstractmethod
     def _compress(self):
@@ -163,7 +174,8 @@ class BalerBenchmark(Benchmark):
     def _save_decompressed(self, decompressed_data):
         # This is also a no-op because _decompress() already handled it.
         path = os.path.join(self.output_dir, "decompressed_output", "decompressed.npz")
-        print(f"  Decompressed file already saved to: {path}")
+        if self.verbose:
+            print(f"  Decompressed file already saved to: {path}")
 
 
 class DowncastBenchmark(Benchmark):
@@ -346,3 +358,49 @@ class BloscBenchmark(Benchmark):
 #             self.data_original.shape, 
 #             self.data_original.dtype
 #         )
+
+def output_benchmark_results(original_size_mb, all_results, verbose):
+    # --- Prepare the header for the summary table ---
+    header = f"{'Method':<30} | {'Size (MB)':>10} | {'Comp Ratio':>11} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}"
+
+    if verbose:
+        # --- Print Final Summary Table ---
+        print("\n" + "=" * 150)
+        print(f"                          COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB                          ")
+        print("-" * 150)
+        print(header)
+        print("-" * 150)
+    
+    # Write the header to the results tracking file
+    with open("compression_comparison_results.txt", "a") as f:
+        print("\n" + "=" * 150)
+        f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB\n")
+        f.write(f"{header}\n")
+        f.write("-" * 150 + "\n")
+
+    # Sort results by a desired metric, e.g., RMSE
+    sorted_results = sorted(all_results, key=lambda r: r.rmse)
+    
+    for r in sorted_results:
+        # Calculate compression ratio
+        if original_size_mb > 0 and r.size_mb > 0:
+            ratio = original_size_mb / r.size_mb
+            ratio_str = f"{ratio:.2f}:1"
+        else:
+            ratio_str = "N/A" # Handle cases where original size is unknown or compressed size is zero
+
+        result_string = (
+            f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
+            f"{r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}"
+        )
+
+        if verbose:
+            # Print each result in a formatted manner
+            print(result_string)
+        
+        # Write each result to the results tracking file
+        with open("compression_comparison_results.txt", "a") as f:
+            f.write(result_string + "\n")
+
+    if verbose:
+        print("=" * 150 + "\n")

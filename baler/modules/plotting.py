@@ -533,7 +533,7 @@ def plot_comparison_summary(results, output_path, original_size_mb):
     for ax in axs.flat:
         plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
 
-    plt.tight_layout(rect=[0, 0, 1, 1]) # Adjust layout to make room for suptitle
+    fig.tight_layout(rect=[0, 0.03, 1, 0.97]) # Adjust layout to make room for suptitle
 
     # Save the figure
     plot_dir = os.path.join(output_path, "plotting")

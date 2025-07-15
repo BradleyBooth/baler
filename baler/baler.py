@@ -16,6 +16,7 @@ import os
 import time
 from math import ceil
 import numpy as np
+from datetime import datetime
 
 from .modules import helper
 from .modules import compare
@@ -66,7 +67,7 @@ def main():
     if mode == "newProject":
         helper.create_new_project(workspace_name, project_name, verbose)
     elif mode == "train":
-        perform_training(output_path=output_path, config=config, verbose=verbose)
+        perform_training(output_path, config, project_name, verbose)
     elif mode == "diagnose":
         perform_diagnostics(output_path, verbose)
     elif mode == "compress":
@@ -80,7 +81,7 @@ def main():
     elif mode == "convert_with_hls4ml":
         helper.perform_hls4ml_conversion(output_path, config)
     elif mode == "compare":
-        perform_comparison(output_path, config, verbose)
+        perform_comparison(output_path, config, project_name, verbose)
     else:
         raise NameError(
             "Baler mode "
@@ -89,7 +90,7 @@ def main():
         )
 
 
-def perform_training(output_path, config, verbose: bool):
+def perform_training(output_path, config, project_name, verbose: bool):
     """Main function calling the training functions, ran when --mode=train is selected.
         The three functions called are: `helper.process`, `helper.mode_init` and `helper.training`.
 
@@ -103,6 +104,7 @@ def perform_training(output_path, config, verbose: bool):
     Raises:
         NameError: Baler currently only supports 1D (e.g. HEP) or 2D (e.g. CFD) data as inputs.
     """
+    green_code_timer_start = time.perf_counter()
     (
         train_set_norm,
         test_set_norm,
@@ -213,6 +215,13 @@ def perform_training(output_path, config, verbose: bool):
 
         print("\nThe model has the following structure:")
         print(model.type)
+
+    green_code_timer_end = time.perf_counter()
+    helper.green_code_tracking(
+        start = green_code_timer_start,
+        end = green_code_timer_end,
+        title = f"{project_name} - Model Training"
+    )
 
 
 def perform_diagnostics(project_path, verbose: bool):
@@ -524,7 +533,7 @@ def print_info(output_path, config):
     ## TODO: Add way to print how much your data has been distorted
 
 
-def perform_comparison(output_path, config, verbose: bool):
+def perform_comparison(output_path, config, project_name, verbose):
     """
     Runs a series of compression benchmarks and prints a summary table.
     This function orchestrates a comparison between the project's Baler model
@@ -545,10 +554,14 @@ def perform_comparison(output_path, config, verbose: bool):
         verbose (bool): A flag passed to the compression and decompression
             functions to control the verbosity of their output.
     """
+
+    green_code_timer_start = time.perf_counter()
+
     original_path = config.input_path
     original_npz = np.load(original_path)
     data_original = original_npz["data"]
     names_original = original_npz["names"]
+
 
     # Calculate original file size for compression ratio calculation
     try:
@@ -700,32 +713,66 @@ def perform_comparison(output_path, config, verbose: bool):
         # Optional: Call plotting for each result if you want intermediate plots
         # plot(output_path, config, benchmark.output_dir)
 
-    # --- Print Final Summary Table ---
-    print("\n" + "=" * 110)
-    print(f"                          COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB                          ")
-    print("-" * 110)
-    header = f"{'Method':<30} | {'Size (MB)':>10} | {'Comp Ratio':>11} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}"
-    print(header)
-    print("-" * 110)
-    
-    # Sort results by a desired metric, e.g., RMSE
-    sorted_results = sorted(all_results, key=lambda r: r.rmse)
-    
-    for r in sorted_results:
-        # Calculate compression ratio
-        if original_size_mb > 0 and r.size_mb > 0:
-            ratio = original_size_mb / r.size_mb
-            ratio_str = f"{ratio:.2f}:1"
-        else:
-            ratio_str = "N/A" # Handle cases where original size is unknown or compressed size is zero
+    compare.output_benchmark_results(original_size_mb, all_results, verbose=verbose)
 
-        print(
-            f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
-            f"{r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}"
-        )
+    # # --- Prepare the header for the summary table ---
+    # header = f"{'Method':<30} | {'Size (MB)':>10} | {'Comp Ratio':>11} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}"
+
+    # if verbose:
+    #     # --- Print Final Summary Table ---
+    #     print("\n" + "=" * 150)
+    #     print(f"                          COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB                          ")
+    #     print("-" * 150)
+    #     print(header)
+    #     print("-" * 150)
     
-    print("=" * 110)
+    # # Write the header to the results tracking file
+    # with open("compression_comparison_results.txt", "a") as f:
+    #     f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB\n")
+    #     f.write(f"{header}\n")
+    #     f.write("-" * 150 + "\n")
+
+    # # Sort results by a desired metric, e.g., RMSE
+    # sorted_results = sorted(all_results, key=lambda r: r.rmse)
+    
+    # for r in sorted_results:
+    #     # Calculate compression ratio
+    #     if original_size_mb > 0 and r.size_mb > 0:
+    #         ratio = original_size_mb / r.size_mb
+    #         ratio_str = f"{ratio:.2f}:1"
+    #     else:
+    #         ratio_str = "N/A" # Handle cases where original size is unknown or compressed size is zero
+
+    #     if verbose:
+    #         # Print each result in a formatted manner
+    #         print(
+    #             f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
+    #             f"{r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}"
+    #         )
+        
+    #     # Write each result to the results tracking file
+    #     with open("compression_comparison_results.txt", "a") as f:
+    #         f.write(
+    #             f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
+    #             f"{r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}\n"
+    #         )
+            
+    # print("=" * 150 + "\n")
 
     if all_results:
         # Pass the results to the new plotting function
         plot_comparison_summary(all_results, output_path, original_size_mb)
+    
+    green_code_timer_end = time.perf_counter()
+
+    with open("compression_comparison_results.txt", "a") as f:
+        f.write(
+            f"Total time taken: {green_code_timer_end - green_code_timer_start:.3f} seconds\n"
+        )
+
+    helper.green_code_tracking(
+        start = green_code_timer_start,
+        end = green_code_timer_end,
+        title = f"{project_name} - Compression Comparison",
+        verbose = verbose
+    )
