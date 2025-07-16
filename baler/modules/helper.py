@@ -300,7 +300,7 @@ def process(
     Returns: ndarray, ndarray, ndarray: Array with the train set, array with the test set and array with the
     normalization features.
     """
-    loaded = np.load(input_path, allow_pickle=True)
+    loaded = np.load(input_path)
     data = loaded["data"]
 
     if verbose:
