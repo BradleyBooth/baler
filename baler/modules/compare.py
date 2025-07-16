@@ -16,6 +16,7 @@ from external.sz3.pysz import pysz
 @dataclass
 class BenchmarkResult:
     """A container for the results of a single compression benchmark."""
+
     name: str
     size_mb: float
     compress_time_sec: float
@@ -31,7 +32,14 @@ class Benchmark(abc.ABC):
     This class defines the template for running a benchmark.
     """
 
-    def __init__(self, name: str, output_dir: str, data_original: np.ndarray, names_original: np.ndarray, verbose: bool = True):
+    def __init__(
+        self,
+        name: str,
+        output_dir: str,
+        data_original: np.ndarray,
+        names_original: np.ndarray,
+        verbose: bool = True,
+    ):
         self.name = name
         self.output_dir = output_dir
         self.data_original = data_original
@@ -63,20 +71,24 @@ class Benchmark(abc.ABC):
         end_decompress = time.perf_counter()
         decompress_time = end_decompress - start_decompress
         # print(f"  Decompression time: {decompress_time:.3f} seconds")
-        
+
         self._save_decompressed(decompressed_data)
 
         # 3. Error Analysis
         metrics = self._analyze_errors(decompressed_data)
         # print(f"  -> Done. RMSE: {metrics['rmse']:.2e}, Max Error: {metrics['max_err']:.2e}")
-        
+
         # 4. Print results if verbose
         if self.verbose:
             print(f"\nBenchmarking: {self.name}")
             print(f"  Compression time: {compress_time:.3f} seconds")
-            print(f"  Compressed size: {compressed_file_size_bytes / (1024 * 1024):.3f} MB")
+            print(
+                f"  Compressed size: {compressed_file_size_bytes / (1024 * 1024):.3f} MB"
+            )
             print(f"  Decompression time: {decompress_time:.3f} seconds")
-            print(f"  -> Done. RMSE: {metrics['rmse']:.2e}, Max Error: {metrics['max_err']:.2e}")
+            print(
+                f"  -> Done. RMSE: {metrics['rmse']:.2e}, Max Error: {metrics['max_err']:.2e}"
+            )
 
         # 5. Create and return result object
         return BenchmarkResult(
@@ -84,21 +96,25 @@ class Benchmark(abc.ABC):
             size_mb=compressed_file_size_bytes / (1024 * 1024),
             compress_time_sec=compress_time,
             decompress_time_sec=decompress_time,
-            **metrics
+            **metrics,
         )
 
     def _analyze_errors(self, decompressed_data: np.ndarray) -> dict:
         """Performs error analysis and returns a dictionary of metrics."""
         if decompressed_data.shape != self.data_original.shape:
             raise ValueError(f"Shape mismatch after decompression for {self.name}!")
-    
-        diff = self.data_original.astype(np.float64) - decompressed_data.astype(np.float64)
-        mse = np.mean(diff ** 2)
+
+        diff = self.data_original.astype(np.float64) - decompressed_data.astype(
+            np.float64
+        )
+        mse = np.mean(diff**2)
         rmse = np.sqrt(mse)
         max_abs_err = np.max(np.abs(diff))
-        
+
         data_range = np.max(self.data_original) - np.min(self.data_original)
-        psnr = 20 * np.log10(data_range) - 10 * np.log10(mse) if mse > 0 else float('inf')
+        psnr = (
+            20 * np.log10(data_range) - 10 * np.log10(mse) if mse > 0 else float("inf")
+        )
 
         return {"rmse": rmse, "max_err": max_abs_err, "psnr": psnr}
 
@@ -118,20 +134,30 @@ class Benchmark(abc.ABC):
     def _decompress(self, compressed_data) -> np.ndarray:
         """Subclasses must implement this. Should return the decompressed numpy array."""
         pass
-    
+
     def _save_compressed(self, compressed_data) -> str:
         """Default method to save compressed data as a binary blob."""
         path = os.path.join(self.output_dir, "compressed.bin")
-        with open(path, 'wb') as f:
+        with open(path, "wb") as f:
             f.write(compressed_data)
         return path
 
 
 # --- Specific Benchmark Implementations ---
 
+
 class BalerBenchmark(Benchmark):
     """Benchmark for the main 'baler' autoencoder compression."""
-    def __init__(self, name: str, output_path: str, compress_func, decompress_func, data_original, names_original):
+
+    def __init__(
+        self,
+        name: str,
+        output_path: str,
+        compress_func,
+        decompress_func,
+        data_original,
+        names_original,
+    ):
         # Baler manages its own output directory, so we pass the project's output_path
         super().__init__(name, output_path, data_original, names_original)
         self.compress_func = compress_func
@@ -145,31 +171,35 @@ class BalerBenchmark(Benchmark):
     def _decompress(self, compressed_data):
         # Baler's decompression also works on files, then we load the result
         self.decompress_func()
-        decompressed_path = os.path.join(self.output_dir, "decompressed_output", "decompressed.npz")
-        return np.load(decompressed_path)['data']
+        decompressed_path = os.path.join(
+            self.output_dir, "decompressed_output", "decompressed.npz"
+        )
+        return np.load(decompressed_path)["data"]
 
     def _save_compressed(self, compressed_data):
-        # # This is a no-op because _compress() already saved the file.
-        # # We just need to return the path for size calculation.
-        # return os.path.join(self.output_dir, "compressed_output", "compressed.npz")
-    
-        npz_path = os.path.join(self.output_dir, "compressed_output", "compressed.npz")
-        with np.load(npz_path) as data:
-            for key in data.files:
-                if key == 'data':
-                    # print(f"Key: {key}, Shape: {data[key].shape}, Dtype: {data[key].dtype}")
-                    # with np.printoptions(threshold=np.inf):
-                    #     print(data[key][:10])
-                    compressed_data = data[key]
+        # This is a no-op because _compress() already saved the file.
+        # We just need to return the path for size calculation.
+        return os.path.join(self.output_dir, "compressed_output", "compressed.npz")
 
-        # for the purposes of benchmarking, we need baler compressed data without the normalization features
-        no_norm_output_path = os.path.join(self.output_dir, "compressed_output", "no_norm_compressed.npz")
-        np.savez(
-            no_norm_output_path,
-            data=compressed_data,
-            names=self.names_original,
-        )
-        return no_norm_output_path
+        # npz_path = os.path.join(self.output_dir, "compressed_output", "compressed.npz")
+        # with np.load(npz_path) as data:
+        #     for key in data.files:
+        #         if key == "data":
+        #             # print(f"Key: {key}, Shape: {data[key].shape}, Dtype: {data[key].dtype}")
+        #             # with np.printoptions(threshold=np.inf):
+        #             #     print(data[key][:10])
+        #             compressed_data = data[key]
+
+        # # for the purposes of benchmarking, we need baler compressed data without the normalization features
+        # no_norm_output_path = os.path.join(
+        #     self.output_dir, "compressed_output", "no_norm_compressed.npz"
+        # )
+        # np.savez(
+        #     no_norm_output_path,
+        #     data=compressed_data,
+        #     names=self.names_original,
+        # )
+        # return no_norm_output_path
 
     def _save_decompressed(self, decompressed_data):
         # This is also a no-op because _decompress() already handled it.
@@ -182,10 +212,17 @@ class DowncastBenchmark(Benchmark):
     """
     Benchmark for downcasting data to a specified NumPy data type (e.g., float32, float16).
     """
-    def __init__(self, output_dir: str, data_original: np.ndarray, names_original: np.ndarray, target_dtype: np.dtype):
+
+    def __init__(
+        self,
+        output_dir: str,
+        data_original: np.ndarray,
+        names_original: np.ndarray,
+        target_dtype: np.dtype,
+    ):
         """
         Initializes the benchmark for a specific target data type.
-        
+
         Args:
             output_dir (str): Directory to save benchmark artifacts.
             data_original (np.ndarray): The original, high-precision data.
@@ -229,10 +266,17 @@ class ZFPBenchmark(Benchmark):
     Attributes:
         zfp_params (dict): The dictionary of ZFP parameters used for compression.
     """
-    def __init__(self, output_dir: str, data_original: np.ndarray, names_original: np.ndarray, zfp_params: dict):
+
+    def __init__(
+        self,
+        output_dir: str,
+        data_original: np.ndarray,
+        names_original: np.ndarray,
+        zfp_params: dict,
+    ):
         """
         Initializes the benchmark for a specific set of ZFP parameters.
-        
+
         Args:
             output_dir (str): Directory to save benchmark artifacts.
             data_original (np.ndarray): The original, high-precision data.
@@ -242,13 +286,13 @@ class ZFPBenchmark(Benchmark):
         """
         if not zfp_params:
             raise ValueError("zfp_params dictionary cannot be empty for ZFPBenchmark.")
-            
+
         self.zfp_params = zfp_params
-        
+
         # Automatically generate a descriptive name from the parameters
         param_str = ", ".join([f"{k}={v}" for k, v in self.zfp_params.items()])
         name = f"ZFP({param_str})"
-        
+
         super().__init__(name, output_dir, data_original, names_original)
 
     def _compress(self):
@@ -264,7 +308,10 @@ class ZFPBenchmark(Benchmark):
 
 class BloscBenchmark(Benchmark):
     """Benchmark for Blosc2 compression."""
-    def __init__(self, name: str, output_dir: str, data_original, names_original, cparams: dict):
+
+    def __init__(
+        self, name: str, output_dir: str, data_original, names_original, cparams: dict
+    ):
         super().__init__(name, output_dir, data_original, names_original)
         self.cparams = cparams
 
@@ -274,14 +321,15 @@ class BloscBenchmark(Benchmark):
     def _decompress(self, compressed_data):
         return blosc2.unpack_array2(compressed_data)
 
+
 # TODO Need to get sz3 working properly and understand configuration options
 # class SZ3Benchmark(Benchmark):
 #     """Benchmark for SZ3 compression."""
-    
+
 #     def __init__(self, output_dir: str, data_original: np.ndarray, names_original: np.ndarray, **kwargs):
 #         """
 #         Initializes the SZ3 benchmark.
-        
+
 #         Args:
 #             output_dir: Directory for artifacts.
 #             data_original: The original data array.
@@ -295,12 +343,12 @@ class BloscBenchmark(Benchmark):
 #         # Automatically generate a descriptive name from the parameters
 #         param_str = ", ".join([f"{k}={v}" for k, v in kwargs.items()])
 #         name = f"SZ3({param_str})"
-        
+
 #         super().__init__(name, output_dir, data_original, names_original)
-        
+
 #         # Store user-friendly kwargs
 #         self.sz_kwargs = kwargs
-        
+
 #         # 1. Get the directory containing this script (e.g., /home/bb/baler/modules)
 #         this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -316,7 +364,7 @@ class BloscBenchmark(Benchmark):
 
 #         # 5. Now, instantiate the SZ compressor with the guaranteed correct path
 #         self.sz_compressor = pysz.SZ(szpath=sz_library_path)
-        
+
 #         # Map our friendly string modes to the library's integer codes
 #         self.mode_map = {
 #             'ABS': 0,
@@ -334,19 +382,19 @@ class BloscBenchmark(Benchmark):
 #         eb_mode = self.mode_map.get(mode_str)
 #         if eb_mode is None:
 #             raise ValueError(f"Unknown SZ3 mode: {mode_str}")
-            
+
 #         # Get error bound values from kwargs, with defaults
 #         eb_abs = self.sz_kwargs.get('abs_val', 0.0)
 #         eb_rel = self.sz_kwargs.get('rel_val', 0.0)
 #         eb_pwr = self.sz_kwargs.get('pwr_val', 0.0)
-        
+
 #         # The library's compress method returns a tuple: (compressed_data, ratio)
 #         # We only need the data, as our framework calculates size from the saved file.
 #         compressed_data, _ = self.sz_compressor.compress(
-#             self.data_original, 
-#             eb_mode, 
-#             eb_abs, 
-#             eb_rel, 
+#             self.data_original,
+#             eb_mode,
+#             eb_abs,
+#             eb_rel,
 #             eb_pwr
 #         )
 #         return compressed_data
@@ -354,40 +402,47 @@ class BloscBenchmark(Benchmark):
 #     def _decompress(self, compressed_data):
 #         """Decompresses data using the instantiated SZ compressor object."""
 #         return self.sz_compressor.decompress(
-#             compressed_data, 
-#             self.data_original.shape, 
+#             compressed_data,
+#             self.data_original.shape,
 #             self.data_original.dtype
 #         )
 
-def output_benchmark_results(original_size_mb, all_results, verbose):
+
+def output_benchmark_results(original_size_mb, all_results, title, verbose):
     # --- Prepare the header for the summary table ---
     header = f"{'Method':<30} | {'Size (MB)':>10} | {'Comp Ratio':>11} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}"
 
     if verbose:
         # --- Print Final Summary Table ---
         print("\n" + "=" * 150)
-        print(f"                          COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB                          ")
+        print(
+            f"                          COMPRESSION SUMMARY - {title} - Original Size: {original_size_mb:.3f} MB                          "
+        )
         print("-" * 150)
         print(header)
         print("-" * 150)
-    
+
     # Write the header to the results tracking file
     with open("compression_comparison_results.txt", "a") as f:
-        print("\n" + "=" * 150)
-        f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB\n")
+        f.write("\n" + "=" * 150 + "\n")
+        f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(
+            f"COMPRESSION SUMMARY - {title} - Original Size: {original_size_mb:.3f} MB\n"
+        )
+        f.write("-" * 150 + "\n")
         f.write(f"{header}\n")
         f.write("-" * 150 + "\n")
 
     # Sort results by a desired metric, e.g., RMSE
     sorted_results = sorted(all_results, key=lambda r: r.rmse)
-    
+
     for r in sorted_results:
         # Calculate compression ratio
         if original_size_mb > 0 and r.size_mb > 0:
             ratio = original_size_mb / r.size_mb
             ratio_str = f"{ratio:.2f}:1"
         else:
-            ratio_str = "N/A" # Handle cases where original size is unknown or compressed size is zero
+            ratio_str = "N/A"  # Handle cases where original size is unknown or compressed size is zero
 
         result_string = (
             f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
@@ -397,7 +452,7 @@ def output_benchmark_results(original_size_mb, all_results, verbose):
         if verbose:
             # Print each result in a formatted manner
             print(result_string)
-        
+
         # Write each result to the results tracking file
         with open("compression_comparison_results.txt", "a") as f:
             f.write(result_string + "\n")

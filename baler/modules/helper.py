@@ -36,20 +36,26 @@ def get_arguments():
     """Determines the arguments one is able to apply in the command line when running Baler. Use `--help` to see what
     options are available.
 
-    Returns: .py, string, folder: `.py` file containing the config options, string determining what mode to run,
-    projects directory where outputs go.
+    Returns:
+        tuple: (config (Config or None), mode (str), workspace_name (str), project_name (str), verbose (bool))
     """
     parser = argparse.ArgumentParser(
         prog="baler",
         description=(
             "Baler is a machine learning based compression tool for big data.\n\n"
-            "Baler has three running modes:\n\n"
-            '\t1. Derivation: Using a configuration file and a "small" input dataset, Baler derives a '
+            "Baler has nine running modes:\n\n"
+            "\t1. newProject: Creates a new project directory, with default configuration files.\n\n"
+            '\t2. train: Using a configuration file and a "small" input dataset, Baler derives a '
             "machine learning model optimized to compress and decompress your data.\n\n"
-            "\t2. Compression: Using a previously derived model and a large input dataset, Baler compresses "
+            "\t3. compress: Using a previously derived model and a large input dataset, Baler compresses "
             "your data and outputs a smaller compressed file.\n\n"
-            "\t3. Decompression: Using a previously compressed file as input and a model, Baler decompresses "
-            "your data into a larger file."
+            "\t4. decompress: Using a previously compressed file as input and a model, Baler decompresses "
+            "your data into a larger file.\n\n"
+            "\t5. plot: Creates plots from the training output data.\n\n"
+            "\t6. info: Displays information about the project and workspace.\n\n"
+            "\t7. hls4ml: Converts the trained model to an HLS4ML project for FPGA deployment.\n\n"
+            "\t8. diagnose: Runs diagnostics on the activations of the trained model.\n\n"
+            "\t9. compare: Compares the performance of the trained model with other models.\n\n"
         ),
         epilog="Enjoy!",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -752,9 +758,7 @@ def diagnose(input_path: str, output_path: str) -> None:
             "Please ensure that the activations.npy file exists in the training folder and try again."
         )
     except Exception as e:
-        print(
-            "An unexpected error occurred while running diagnostics. "
-        )
+        print("An unexpected error occurred while running diagnostics. ")
         print(f"Error details: {e}")
         raise
 
@@ -866,15 +870,22 @@ def perform_hls4ml_conversion(output_path, config):
         csim=config.csim, synth=config.synth, cosim=config.cosim, export=config.export
     )
 
-def green_code_tracking(start, end, title, verbose=False):
+
+def green_code_tracking(start, end, title, verbose=False, testing=False):
+    if testing:
+        file_name = "green_code_tracking_test.txt"
+    else:
+        file_name = "green_code_tracking.txt"
     if verbose:
         print("\n" + "=" * 150)
-        print(f"                    GREEN CODE INITIATIVE - {title}                          ")
+        print(
+            f"                    GREEN CODE INITIATIVE - {title}                          "
+        )
         print("-" * 150)
         print(f"Total time taken for {title}: {end - start:.3f} seconds")
         print(f"{title} complete. All results saved in the output directory.")
         print("\n" + "=" * 150)
-    with open("green_code_tracking.txt", "a") as f:
+    with open(file_name, "a") as f:
         f.write(
             f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {title} - Total time taken: {end - start:.3f} seconds\n"
         )

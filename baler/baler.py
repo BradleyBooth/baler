@@ -35,7 +35,7 @@ __all__ = (
     "perform_plotting",
     "perform_training",
     "print_info",
-    "perform_comparison"
+    "perform_comparison",
 )
 
 
@@ -44,9 +44,11 @@ def main():
 
         - if --mode=newProject: call `helper.create_new_project` and create a new project sub directory with config file
         - if --mode=train: call `perform_training` and train the network on given data and based on the config file and check if profilers are enabled
+        - if --mode=diagnose: call `perform_diagnostics` and diagnose the training process by plotting the activations of the layers.
         - if --mode=compress: call `perform_compression` and compress the given data using the model trained in `--mode=train`
         - if --mode=decompress: call `perform_decompression` and decompress the compressed file outputted from `--mode=compress`
         - if --mode=plot: call `perform_plotting` and plot the comparison between the original data and the decompressed data from `--mode=decompress`. Also plots the loss plot from the trained network.
+        - if --mode=info: call `print_info` and print information about the compression ratio and file sizes.
         - if --mode=convert_with_hls4ml: call `helper.perform_hls4ml_conversion` and create an hls4ml project containing the converted model.
         - if --mode=compare: call `perform_comparison` and compare the compressed data with non-AE lossy compression algorithms.
 
@@ -218,9 +220,9 @@ def perform_training(output_path, config, project_name, verbose: bool):
 
     green_code_timer_end = time.perf_counter()
     helper.green_code_tracking(
-        start = green_code_timer_start,
-        end = green_code_timer_end,
-        title = f"{project_name} - Model Training"
+        start=green_code_timer_start,
+        end=green_code_timer_end,
+        title=f"{project_name} - Model Training",
     )
 
 
@@ -501,7 +503,7 @@ def print_info(output_path, config):
     if os.path.exists(loss_path):
         meta_data.append(os.path.join(training_path, "loss_data.npy"))
 
-    norm_path = os.path.join(training_path, "normalization_features.npy")                             
+    norm_path = os.path.join(training_path, "normalization_features.npy")
     if os.path.exists(norm_path):
         meta_data.append(os.path.join(training_path, "normalization_features.npy"))
 
@@ -562,14 +564,15 @@ def perform_comparison(output_path, config, project_name, verbose):
     data_original = original_npz["data"]
     names_original = original_npz["names"]
 
-
     # Calculate original file size for compression ratio calculation
     try:
         original_size_bytes = os.path.getsize(original_path)
         original_size_mb = original_size_bytes / (1024 * 1024)
         print(f"Original input file size: {original_size_mb:.3f} MB ({original_path})")
     except FileNotFoundError:
-        print(f"Warning: Could not find original file at {original_path} to calculate compression ratio.")
+        print(
+            f"Warning: Could not find original file at {original_path} to calculate compression ratio."
+        )
         original_size_mb = 0
 
     # Define all the benchmarks we want to run
@@ -578,12 +581,12 @@ def perform_comparison(output_path, config, project_name, verbose):
     # 1. Baler
     benchmarks_to_run.append(
         compare.BalerBenchmark(
-            name=f'Baler ({config.model_name})',
+            name=f"Baler ({config.model_name})",
             output_path=output_path,  # Baler uses the main project output path
             compress_func=lambda: perform_compression(output_path, config, verbose),
             decompress_func=lambda: perform_decompression(output_path, config, verbose),
             data_original=data_original,
-            names_original=names_original
+            names_original=names_original,
         )
     )
 
@@ -593,7 +596,7 @@ def perform_comparison(output_path, config, project_name, verbose):
             output_dir=os.path.join(output_path, "downcast_float16"),
             data_original=data_original,
             names_original=names_original,
-            target_dtype=np.float16
+            target_dtype=np.float16,
         )
     )
 
@@ -603,7 +606,7 @@ def perform_comparison(output_path, config, project_name, verbose):
             output_dir=os.path.join(output_path, "downcast_float32"),
             data_original=data_original,
             names_original=names_original,
-            target_dtype=np.float32
+            target_dtype=np.float32,
         )
     )
 
@@ -612,23 +615,23 @@ def perform_comparison(output_path, config, project_name, verbose):
     zfp_precision = 22
     benchmarks_to_run.append(
         compare.ZFPBenchmark(
-            output_dir=os.path.join(output_path, f'zfp_prec{zfp_precision}'),
+            output_dir=os.path.join(output_path, f"zfp_prec{zfp_precision}"),
             data_original=data_original,
             names_original=names_original,
-            zfp_params={'precision': zfp_precision}
+            zfp_params={"precision": zfp_precision},
         )
     )
 
     # 3b. ZFP using 'rate' mode (new test)
     # The 'rate' parameter specifies a fixed size budget in bits per value.
     # A smaller rate means higher compression.
-    zfp_rate = 8.0 
+    zfp_rate = 8.0
     benchmarks_to_run.append(
         compare.ZFPBenchmark(
-            output_dir=os.path.join(output_path, f'zfp_rate{zfp_rate}'),
+            output_dir=os.path.join(output_path, f"zfp_rate{zfp_rate}"),
             data_original=data_original,
             names_original=names_original,
-            zfp_params={'rate': zfp_rate}
+            zfp_params={"rate": zfp_rate},
         )
     )
 
@@ -638,10 +641,10 @@ def perform_comparison(output_path, config, project_name, verbose):
     zfp_tolerance = 1e-3
     benchmarks_to_run.append(
         compare.ZFPBenchmark(
-            output_dir=os.path.join(output_path, f'zfp_tol{zfp_tolerance}'),
+            output_dir=os.path.join(output_path, f"zfp_tol{zfp_tolerance}"),
             data_original=data_original,
             names_original=names_original,
-            zfp_params={'tolerance': zfp_tolerance}
+            zfp_params={"tolerance": zfp_tolerance},
         )
     )
 
@@ -649,16 +652,16 @@ def perform_comparison(output_path, config, project_name, verbose):
     blosc_trunc_prec = 18
     benchmarks_to_run.append(
         compare.BloscBenchmark(
-            name=f'Blosc2-LZ4(prec={blosc_trunc_prec})',
-            output_dir=os.path.join(output_path, f'blosc2_lz4_prec{blosc_trunc_prec}'),
+            name=f"Blosc2-LZ4(prec={blosc_trunc_prec})",
+            output_dir=os.path.join(output_path, f"blosc2_lz4_prec{blosc_trunc_prec}"),
             data_original=data_original,
             names_original=names_original,
             cparams={
-                'filters': [blosc2.Filter.TRUNC_PREC, blosc2.Filter.SHUFFLE],
-                'filters_meta': [blosc_trunc_prec, 0],
-                'codec': blosc2.Codec.LZ4,
-                'clevel': 5
-            }
+                "filters": [blosc2.Filter.TRUNC_PREC, blosc2.Filter.SHUFFLE],
+                "filters_meta": [blosc_trunc_prec, 0],
+                "codec": blosc2.Codec.LZ4,
+                "clevel": 5,
+            },
         )
     )
 
@@ -666,16 +669,18 @@ def perform_comparison(output_path, config, project_name, verbose):
     blosc_zstd_clevel = 9
     benchmarks_to_run.append(
         compare.BloscBenchmark(
-            name=f'Blosc2-ZSTD(L{blosc_zstd_clevel})',
-            output_dir=os.path.join(output_path, f'blosc2_zstd_lossy_l{blosc_zstd_clevel}'),
+            name=f"Blosc2-ZSTD(L{blosc_zstd_clevel})",
+            output_dir=os.path.join(
+                output_path, f"blosc2_zstd_lossy_l{blosc_zstd_clevel}"
+            ),
             data_original=data_original,
             names_original=names_original,
             cparams={
-                'filters': [blosc2.Filter.TRUNC_PREC, blosc2.Filter.BITSHUFFLE],
-                'filters_meta': [blosc_trunc_prec, 0],
-                'codec': blosc2.Codec.ZSTD,
-                'clevel': blosc_zstd_clevel
-            }
+                "filters": [blosc2.Filter.TRUNC_PREC, blosc2.Filter.BITSHUFFLE],
+                "filters_meta": [blosc_trunc_prec, 0],
+                "codec": blosc2.Codec.ZSTD,
+                "clevel": blosc_zstd_clevel,
+            },
         )
     )
 
@@ -691,7 +696,7 @@ def perform_comparison(output_path, config, project_name, verbose):
     #         rel_val=sz_rel_error
     #     )
     # )
-    
+
     # # 5b. sz3 using absolute error bound case
     # sz_abs_error = 1e-5
     # benchmarks_to_run.append(
@@ -704,7 +709,6 @@ def perform_comparison(output_path, config, project_name, verbose):
     #     )
     # )
 
-
     # --- Run all benchmarks and collect results ---
     all_results = []
     for benchmark in benchmarks_to_run:
@@ -713,56 +717,14 @@ def perform_comparison(output_path, config, project_name, verbose):
         # Optional: Call plotting for each result if you want intermediate plots
         # plot(output_path, config, benchmark.output_dir)
 
-    compare.output_benchmark_results(original_size_mb, all_results, verbose=verbose)
-
-    # # --- Prepare the header for the summary table ---
-    # header = f"{'Method':<30} | {'Size (MB)':>10} | {'Comp Ratio':>11} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}"
-
-    # if verbose:
-    #     # --- Print Final Summary Table ---
-    #     print("\n" + "=" * 150)
-    #     print(f"                          COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB                          ")
-    #     print("-" * 150)
-    #     print(header)
-    #     print("-" * 150)
-    
-    # # Write the header to the results tracking file
-    # with open("compression_comparison_results.txt", "a") as f:
-    #     f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - COMPRESSION SUMMARY - Original Size: {original_size_mb:.3f} MB\n")
-    #     f.write(f"{header}\n")
-    #     f.write("-" * 150 + "\n")
-
-    # # Sort results by a desired metric, e.g., RMSE
-    # sorted_results = sorted(all_results, key=lambda r: r.rmse)
-    
-    # for r in sorted_results:
-    #     # Calculate compression ratio
-    #     if original_size_mb > 0 and r.size_mb > 0:
-    #         ratio = original_size_mb / r.size_mb
-    #         ratio_str = f"{ratio:.2f}:1"
-    #     else:
-    #         ratio_str = "N/A" # Handle cases where original size is unknown or compressed size is zero
-
-    #     if verbose:
-    #         # Print each result in a formatted manner
-    #         print(
-    #             f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
-    #             f"{r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}"
-    #         )
-        
-    #     # Write each result to the results tracking file
-    #     with open("compression_comparison_results.txt", "a") as f:
-    #         f.write(
-    #             f"{r.name:<30} | {r.size_mb:>10.3f} | {ratio_str:>11} | {r.rmse:>10.2e} | {r.max_err:>11.2e} | "
-    #             f"{r.psnr:>10.1f} | {r.compress_time_sec:>12.3f} | {r.decompress_time_sec:>14.3f}\n"
-    #         )
-            
-    # print("=" * 150 + "\n")
+    compare.output_benchmark_results(
+        original_size_mb, all_results, project_name, verbose=verbose
+    )
 
     if all_results:
         # Pass the results to the new plotting function
         plot_comparison_summary(all_results, output_path, original_size_mb)
-    
+
     green_code_timer_end = time.perf_counter()
 
     with open("compression_comparison_results.txt", "a") as f:
@@ -771,8 +733,8 @@ def perform_comparison(output_path, config, project_name, verbose):
         )
 
     helper.green_code_tracking(
-        start = green_code_timer_start,
-        end = green_code_timer_end,
-        title = f"{project_name} - Compression Comparison",
-        verbose = verbose
+        start=green_code_timer_start,
+        end=green_code_timer_end,
+        title=f"{project_name} - Compression Comparison",
+        verbose=verbose,
     )
