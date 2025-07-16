@@ -16,16 +16,12 @@ import os
 import time
 from math import ceil
 import numpy as np
-from datetime import datetime
 
 from .modules import helper
 from .modules import compare
 import gzip
 from .modules.profiling import pytorch_profile
-from external.sz3.pysz import pysz
-import zfpy
 import blosc2
-from .modules.plotting import plot
 from .modules.plotting import plot_comparison_summary
 
 __all__ = (
@@ -612,6 +608,7 @@ def perform_comparison(output_path, config, project_name, verbose):
 
     # 3a. ZFP using 'precision' mode (the original test)
     # The 'precision' parameter specifies the number of uncompressed bits to keep.
+    # A higher precision means lower compression but better quality.
     zfp_precision = 22
     benchmarks_to_run.append(
         compare.ZFPBenchmark(
@@ -684,45 +681,19 @@ def perform_comparison(output_path, config, project_name, verbose):
         )
     )
 
-    # TODO Need to get sz3 working properly and understand configuration options
-    # # 5a. sz3 using relative error mode
-    # sz_rel_error = 1e-4
-    # benchmarks_to_run.append(
-    #     compare.SZ3Benchmark(
-    #         output_dir=os.path.join(output_path, f'sz3_rel_{sz_rel_error:.0e}'),
-    #         data_original=data_original,
-    #         names_original=names_original,
-    #         mode='REL',
-    #         rel_val=sz_rel_error
-    #     )
-    # )
-
-    # # 5b. sz3 using absolute error bound case
-    # sz_abs_error = 1e-5
-    # benchmarks_to_run.append(
-    #     compare.SZ3Benchmark(
-    #         output_dir=os.path.join(output_path, f'sz3_abs_{sz_abs_error:.0e}'),
-    #         data_original=data_original,
-    #         names_original=names_original,
-    #         mode='ABS',
-    #         abs_val=sz_abs_error
-    #     )
-    # )
+    # TODO Implement SZ3 Benchmark
 
     # --- Run all benchmarks and collect results ---
     all_results = []
     for benchmark in benchmarks_to_run:
         result = benchmark.run()
         all_results.append(result)
-        # Optional: Call plotting for each result if you want intermediate plots
-        # plot(output_path, config, benchmark.output_dir)
 
     compare.output_benchmark_results(
         original_size_mb, all_results, project_name, verbose=verbose
     )
 
     if all_results:
-        # Pass the results to the new plotting function
         plot_comparison_summary(all_results, output_path, original_size_mb)
 
     green_code_timer_end = time.perf_counter()

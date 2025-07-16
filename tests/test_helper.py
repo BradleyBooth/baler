@@ -64,7 +64,9 @@ def test_green_code_tracking_no_verbose(capsys):
         end_time = time.time()
         title = "Test Process No Verbose"
 
-        helper.green_code_tracking(start_time, end_time, title, verbose=False, testing=True)
+        helper.green_code_tracking(
+            start_time, end_time, title, verbose=False, testing=True
+        )
 
         # Check file content
         assert os.path.exists(log_file)
@@ -94,7 +96,9 @@ def test_green_code_tracking_with_verbose(capsys):
         end_time = time.time()
         title = "Test Process Verbose"
 
-        helper.green_code_tracking(start_time, end_time, title, verbose=True, testing=True)
+        helper.green_code_tracking(
+            start_time, end_time, title, verbose=True, testing=True
+        )
 
         # Check file content
         assert os.path.exists(log_file)

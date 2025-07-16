@@ -1,4 +1,17 @@
-# compare.py
+# Copyright 2022 Baler Contributors
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 import os
 import time
@@ -10,7 +23,6 @@ import numpy as np
 # External library imports
 import zfpy
 import blosc2
-from external.sz3.pysz import pysz
 
 
 @dataclass
@@ -52,31 +64,23 @@ class Benchmark(abc.ABC):
         Executes the full benchmark process: compress, decompress, and analyze.
         This is the public-facing method to run a benchmark.
         """
-        # print(f"\nBenchmarking: {self.name}")
-
         # 1. Compression
         start_compress = time.perf_counter()
         compressed_data = self._compress()
         end_compress = time.perf_counter()
         compress_time = end_compress - start_compress
-        # print(f"  Compression time: {compress_time:.3f} seconds")
-
         compressed_path = self._save_compressed(compressed_data)
         compressed_file_size_bytes = os.path.getsize(compressed_path)
-        # print(f"  Compressed size: {compressed_file_size_bytes / (1024 * 1024):.3f} MB")
 
         # 2. Decompression
         start_decompress = time.perf_counter()
         decompressed_data = self._decompress(compressed_data)
         end_decompress = time.perf_counter()
         decompress_time = end_decompress - start_decompress
-        # print(f"  Decompression time: {decompress_time:.3f} seconds")
-
         self._save_decompressed(decompressed_data)
 
         # 3. Error Analysis
         metrics = self._analyze_errors(decompressed_data)
-        # print(f"  -> Done. RMSE: {metrics['rmse']:.2e}, Max Error: {metrics['max_err']:.2e}")
 
         # 4. Print results if verbose
         if self.verbose:
@@ -180,26 +184,6 @@ class BalerBenchmark(Benchmark):
         # This is a no-op because _compress() already saved the file.
         # We just need to return the path for size calculation.
         return os.path.join(self.output_dir, "compressed_output", "compressed.npz")
-
-        # npz_path = os.path.join(self.output_dir, "compressed_output", "compressed.npz")
-        # with np.load(npz_path) as data:
-        #     for key in data.files:
-        #         if key == "data":
-        #             # print(f"Key: {key}, Shape: {data[key].shape}, Dtype: {data[key].dtype}")
-        #             # with np.printoptions(threshold=np.inf):
-        #             #     print(data[key][:10])
-        #             compressed_data = data[key]
-
-        # # for the purposes of benchmarking, we need baler compressed data without the normalization features
-        # no_norm_output_path = os.path.join(
-        #     self.output_dir, "compressed_output", "no_norm_compressed.npz"
-        # )
-        # np.savez(
-        #     no_norm_output_path,
-        #     data=compressed_data,
-        #     names=self.names_original,
-        # )
-        # return no_norm_output_path
 
     def _save_decompressed(self, decompressed_data):
         # This is also a no-op because _decompress() already handled it.
@@ -322,93 +306,28 @@ class BloscBenchmark(Benchmark):
         return blosc2.unpack_array2(compressed_data)
 
 
-# TODO Need to get sz3 working properly and understand configuration options
-# class SZ3Benchmark(Benchmark):
-#     """Benchmark for SZ3 compression."""
-
-#     def __init__(self, output_dir: str, data_original: np.ndarray, names_original: np.ndarray, **kwargs):
-#         """
-#         Initializes the SZ3 benchmark.
-
-#         Args:
-#             output_dir: Directory for artifacts.
-#             data_original: The original data array.
-#             names_original: The original names array.
-#             **kwargs: SZ3 parameters like mode, abs_val, rel_val.
-#                       Example: mode='ABS', abs_val=1e-5
-#         """
-#         if not kwargs or 'mode' not in kwargs:
-#             raise ValueError("SZ3Benchmark requires a 'mode' parameter (e.g., mode='REL', rel_val=1e-4).")
-
-#         # Automatically generate a descriptive name from the parameters
-#         param_str = ", ".join([f"{k}={v}" for k, v in kwargs.items()])
-#         name = f"SZ3({param_str})"
-
-#         super().__init__(name, output_dir, data_original, names_original)
-
-#         # Store user-friendly kwargs
-#         self.sz_kwargs = kwargs
-
-#         # 1. Get the directory containing this script (e.g., /home/bb/baler/modules)
-#         this_dir = os.path.dirname(os.path.abspath(__file__))
-
-#         # 2. Construct a path from this script's location to the library
-#         #    The path from 'modules/' is '../external/sz3/lib/libSZ3c.so'
-#         relative_path_from_script = os.path.join('..', '..', 'external', 'sz3', 'lib', 'libSZ3c.so')
-
-#         # 3. Join the script's directory with the relative path to get the final path
-#         sz_library_path = os.path.join(this_dir, relative_path_from_script)
-
-#         # 4. It's good practice to normalize it to clean up any ".."
-#         sz_library_path = os.path.normpath(sz_library_path)
-
-#         # 5. Now, instantiate the SZ compressor with the guaranteed correct path
-#         self.sz_compressor = pysz.SZ(szpath=sz_library_path)
-
-#         # Map our friendly string modes to the library's integer codes
-#         self.mode_map = {
-#             'ABS': 0,
-#             'REL': 1,
-#             'ABS_AND_REL': 2,
-#             'ABS_OR_REL': 3,
-#             'PSNR': 4,
-#             # Add other modes if needed
-#         }
-
-#     def _compress(self):
-#         """Compresses data using the instantiated SZ compressor object."""
-#         # Get the integer error mode
-#         mode_str = self.sz_kwargs.get('mode')
-#         eb_mode = self.mode_map.get(mode_str)
-#         if eb_mode is None:
-#             raise ValueError(f"Unknown SZ3 mode: {mode_str}")
-
-#         # Get error bound values from kwargs, with defaults
-#         eb_abs = self.sz_kwargs.get('abs_val', 0.0)
-#         eb_rel = self.sz_kwargs.get('rel_val', 0.0)
-#         eb_pwr = self.sz_kwargs.get('pwr_val', 0.0)
-
-#         # The library's compress method returns a tuple: (compressed_data, ratio)
-#         # We only need the data, as our framework calculates size from the saved file.
-#         compressed_data, _ = self.sz_compressor.compress(
-#             self.data_original,
-#             eb_mode,
-#             eb_abs,
-#             eb_rel,
-#             eb_pwr
-#         )
-#         return compressed_data
-
-#     def _decompress(self, compressed_data):
-#         """Decompresses data using the instantiated SZ compressor object."""
-#         return self.sz_compressor.decompress(
-#             compressed_data,
-#             self.data_original.shape,
-#             self.data_original.dtype
-#         )
+# TODO Implement a benchmark for SZ3 compression
 
 
 def output_benchmark_results(original_size_mb, all_results, title, verbose):
+    """
+    Formats and outputs the results of multiple compression benchmarks.
+
+    This function takes a list of BenchmarkResult objects, sorts them by RMSE,
+    and presents them in a formatted table. The summary is printed to the
+    console if `verbose` is True, and is always appended to a log file named
+    'compression_comparison_results.txt'.
+
+    Args:
+        original_size_mb (float): The size of the original, uncompressed data
+            in megabytes, used for calculating the compression ratio.
+        all_results (list[BenchmarkResult]): A list of result objects from all
+            the benchmarks that were run.
+        title (str): A title for the summary table, which will be included in
+            the header.
+        verbose (bool): If True, the summary table is printed to standard
+            output.
+    """
     # --- Prepare the header for the summary table ---
     header = f"{'Method':<30} | {'Size (MB)':>10} | {'Comp Ratio':>11} | {'RMSE':>10} | {'Max Error':>11} | {'PSNR (dB)':>10} | {'Comp Time(s)':>12} | {'Decomp Time(s)':>14}"
 
