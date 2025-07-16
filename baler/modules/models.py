@@ -184,6 +184,12 @@ class AE(nn.Module):
 
 
 class AE_float32(AE):
+    # This class defines an Autoencoder that inherits from the base `AE` class.
+    # All linear layers are explicitly defined with `dtype=torch.float32`.
+    # This model addresses an issue with the original AE inflating the compressed data size
+    #   caused by float64 precision layers operating on float32 data.
+    # To utilise this model, add [c.float_dtype = "float32"] to the project config file.
+
     def __init__(self, n_features, z_dim, *args, **kwargs):
         super(AE_float32, self).__init__(n_features, z_dim, *args, **kwargs)
 
