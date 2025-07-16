@@ -1,6 +1,0 @@
-2025-07-15 12:26:29 - Model Training - Total time taken: 319.182 seconds
-2025-07-15 12:35:06 - Compression Comparison - Total time taken: 116.489 seconds
-2025-07-15 12:49:13 - Compression Comparison - Total time taken: 119.071 seconds
-2025-07-15 13:14:08 - Compression Comparison - Total time taken: 126.908 seconds
-2025-07-15 13:23:28 - atlasOpenHyy_min_cut_v1 - Compression Comparison - Total time taken: 129.973 seconds
-2025-07-16 15:00:55 - atlasOpenHyy_min_cut_v1 - Compression Comparison - Total time taken: 143.418 seconds
